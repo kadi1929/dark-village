@@ -1,27 +1,40 @@
 // =============================================
-// 🎯 القرية المظلمة - نظام الأدوار المكتمل
+// 🎯 القرية المظلمة - النسخة الكاملة مع Socket.io
 // =============================================
+
+// -------------------------
+// 🔌 الاتصال مع خادم Socket.io
+// -------------------------
+
+// الاتصال مع خادم Socket.io - تغيير الرابط عند النشر
+const socket = io('http://localhost:3000', {
+    reconnection: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000
+});
+
+// حالة الاتصال
+let isConnected = false;
 
 // -------------------------
 // 🎯 المتغيرات العامة
 // -------------------------
 
-/**
- * حالة التطبيق الرئيسية
- */
 const state = {
     currentPlayer: {
         name: '',
         id: '',
         isGameMaster: false,
-        role: ''
+        role: null,
+        isAlive: true
     },
     currentRoom: {
         id: '',
         name: '',
         code: '',
         players: [],
-        maxPlayers: 10
+        maxPlayers: 10,
+        gameState: 'waiting' // waiting, playing, finished
     },
     isInRoom: false,
     roleSystem: {
@@ -32,9 +45,7 @@ const state = {
     }
 };
 
-/**
- * 🎭 تعريف جميع الأدوار مع الألوان والرموز
- */
+// 🎭 تعريف جميع الأدوار مع الألوان والرموز
 const ROLES = {
     VILLAGER: {
         id: 'villager',
@@ -128,6 +139,7 @@ function initializeApp() {
     try {
         initializeElements();
         attachEventListeners();
+        initializeSocketListeners();
         resetState();
         loadSavedData();
         
@@ -191,12 +203,6 @@ function initializeElements() {
     elements.manualRoleError = document.getElementById('manualRoleError');
     elements.chefAssignmentError = document.getElementById('chefAssignmentError');
     
-    // أزرار إدارة الأدوار
-    elements.autoAssignRoles = document.getElementById('autoAssignRoles');
-    elements.manualAssignRoles = document.getElementById('manualAssignRoles');
-    elements.assignChef = document.getElementById('assignChef');
-    elements.roleAssignmentResults = document.getElementById('roleAssignmentResults');
-    
     // رسائل النظام
     elements.errorMessage = document.getElementById('error-message');
     
@@ -229,11 +235,6 @@ function attachEventListeners() {
     elements.closeChefBtn.addEventListener('click', closeChefAssignmentPopup);
     elements.confirmManualRoles.addEventListener('click', handleConfirmManualRoles);
     elements.confirmChefAssignment.addEventListener('click', handleConfirmChefAssignment);
-    
-    // أزرار إدارة الأدوار
-    elements.autoAssignRoles.addEventListener('click', handleAutoAssignRoles);
-    elements.manualAssignRoles.addEventListener('click', handleManualAssignRoles);
-    elements.assignChef.addEventListener('click', handleAssignChef);
     
     // إغلاق النوافذ بالضغط خارجها
     elements.storyPopup.addEventListener('click', function(event) {
@@ -287,6 +288,143 @@ function attachEventListeners() {
 }
 
 // -------------------------
+// 🔌 أحداث Socket.io
+// -------------------------
+
+/**
+ * ✅ تهيئة مستمعات Socket.io
+ */
+function initializeSocketListeners() {
+    console.log('🔌 تهيئة مستمعات Socket.io...');
+    
+    // حالة الاتصال
+    socket.on('connect', () => {
+        console.log('✅ متصل بالخادم بنجاح');
+        isConnected = true;
+        updateConnectionStatus();
+        showSuccess('تم الاتصال بالخادم بنجاح');
+    });
+    
+    socket.on('disconnect', () => {
+        console.log('❌ انقطع الاتصال بالخادم');
+        isConnected = false;
+        updateConnectionStatus();
+        showError('انقطع الاتصال بالخادم');
+    });
+    
+    socket.on('connect_error', (error) => {
+        console.error('❌ خطأ في الاتصال:', error);
+        showError('تعذر الاتصال بالخادم. تأكد من تشغيل الخادم أولاً.');
+    });
+    
+    // نجاح إنشاء الغرفة
+    socket.on('room-created', (data) => {
+        console.log('✅ تم إنشاء الغرفة:', data);
+        showSuccess(`تم إنشاء الغرفة "${data.roomName}" بنجاح!`);
+    });
+    
+    // خطأ في إنشاء الغرفة
+    socket.on('create-error', (message) => {
+        console.error('❌ خطأ في إنشاء الغرفة:', message);
+        showError(message);
+    });
+    
+    // نجاح الانضمام للغرفة
+    socket.on('join-success', (roomData) => {
+        console.log('✅ تم الانضمام للغرفة:', roomData);
+        state.currentRoom = roomData;
+        state.isInRoom = true;
+        
+        // تحديث دور اللاعب الحالي
+        const currentPlayer = roomData.players.find(p => p.socketId === socket.id);
+        if (currentPlayer) {
+            state.currentPlayer = { ...state.currentPlayer, ...currentPlayer };
+        }
+        
+        updateRoomDisplay();
+        showRoomInfo();
+        initializeRoleSystem();
+        showSuccess('تم الانضمام للغرفة بنجاح!');
+        saveToLocalStorage();
+    });
+    
+    // خطأ في الانضمام
+    socket.on('join-error', (message) => {
+        console.error('❌ خطأ في الانضمام:', message);
+        showError(message);
+    });
+    
+    // تحديث بيانات الغرفة
+    socket.on('room-updated', (roomData) => {
+        console.log('🔄 تحديث بيانات الغرفة:', roomData);
+        state.currentRoom = roomData;
+        updateRoomDisplay();
+    });
+    
+    // لاعب جديد انضم
+    socket.on('player-joined', (data) => {
+        console.log('👋 لاعب جديد:', data);
+        showSuccess(`${data.playerName} انضم إلى الغرفة!`);
+    });
+    
+    // لاعب غادر
+    socket.on('player-left', (data) => {
+        console.log('👋 لاعب غادر:', data);
+        showSuccess(`${data.playerName} غادر الغرفة`);
+    });
+    
+    // تم توزيع الأدوار
+    socket.on('roles-assigned', (roomData) => {
+        console.log('🎭 تم توزيع الأدوار:', roomData);
+        state.currentRoom = roomData;
+        state.roleSystem.rolesAssigned = true;
+        updateRoomDisplay();
+        showSuccess('تم توزيع الأدوار بنجاح!');
+        saveToLocalStorage();
+    });
+    
+    // خطأ في توزيع الأدوار
+    socket.on('roles-error', (message) => {
+        console.error('❌ خطأ في توزيع الأدوار:', message);
+        showError(message);
+    });
+    
+    // تم تعيين القائد
+    socket.on('chef-assigned', (roomData) => {
+        console.log('👑 تم تعيين القائد:', roomData);
+        state.currentRoom = roomData;
+        updateRoomDisplay();
+        saveToLocalStorage();
+    });
+    
+    // خطأ في تعيين القائد
+    socket.on('chef-error', (message) => {
+        console.error('❌ خطأ في تعيين القائد:', message);
+        showError(message);
+    });
+    
+    // إشعارات عامة
+    socket.on('notification', (data) => {
+        console.log('💡 إشعار:', data);
+        if (data.type === 'success') {
+            showSuccess(data.message);
+        } else if (data.type === 'error') {
+            showError(data.message);
+        } else {
+            showInfo(data.message);
+        }
+    });
+    
+    // بدء اللعبة
+    socket.on('game-started', (roomData) => {
+        console.log('🎮 بدأت اللعبة:', roomData);
+        state.currentRoom = roomData;
+        showSuccess('بدأت اللعبة! استعدوا...');
+        updateRoomDisplay();
+    });
+}
+
+// -------------------------
 // 🎯 وظائف إدارة الغرف
 // -------------------------
 
@@ -298,6 +436,7 @@ function handleCreateRoom() {
     
     try {
         if (!validateInputs()) return;
+        if (!checkConnection()) return;
         openCreateRoomPopup();
         
     } catch (error) {
@@ -365,7 +504,7 @@ function handleConfirmCreateRoom() {
 }
 
 /**
- * ✅ إنشاء غرفة جديدة
+ * ✅ إنشاء غرفة جديدة مع Socket.io
  */
 function createNewRoom(roomName, roomCode) {
     console.log(`🏠 إنشاء غرفة: ${roomName} (${roomCode})`);
@@ -374,26 +513,21 @@ function createNewRoom(roomName, roomCode) {
     state.currentPlayer.id = generatePlayerId();
     state.currentPlayer.isGameMaster = true;
     
-    state.currentRoom.name = roomName;
-    state.currentRoom.code = roomCode;
-    state.currentRoom.id = generateRoomId();
-    state.currentRoom.players = [{
-        id: state.currentPlayer.id,
-        name: state.currentPlayer.name,
-        isGameMaster: true,
-        role: null,
-        isAlive: true
-    }];
-    
-    state.isInRoom = true;
-    
-    saveToLocalStorage();
-    updateRoomDisplay();
-    showRoomInfo();
-    initializeRoleSystem();
-    
-    showSuccess(`تم إنشاء الغرفة "${roomName}" بنجاح!`);
-    console.log('✅ تم إنشاء الغرفة:', state.currentRoom);
+    // إرسال طلب إنشاء غرفة للخادم
+    socket.emit('create-room', {
+        roomCode: roomCode,
+        roomName: roomName,
+        playerName: state.currentPlayer.name
+    });
+
+    // بعد إنشاء الغرفة، انضم لها
+    setTimeout(() => {
+        socket.emit('join-room', {
+            roomCode: roomCode,
+            playerName: state.currentPlayer.name,
+            isGameMaster: true
+        });
+    }, 100);
 }
 
 /**
@@ -404,6 +538,7 @@ function handleJoinRoom() {
     
     try {
         if (!validateInputs()) return;
+        if (!checkConnection()) return;
         openJoinRoomPopup();
         
     } catch (error) {
@@ -459,7 +594,7 @@ function handleConfirmJoinRoom() {
 }
 
 /**
- * ✅ الانضمام إلى غرفة موجودة
+ * ✅ الانضمام إلى غرفة موجودة مع Socket.io
  */
 function joinExistingRoom(roomCode) {
     console.log(`🔗 الانضمام إلى غرفة: ${roomCode}`);
@@ -468,28 +603,12 @@ function joinExistingRoom(roomCode) {
     state.currentPlayer.id = generatePlayerId();
     state.currentPlayer.isGameMaster = false;
     
-    state.currentRoom.name = `غرفة ${roomCode}`;
-    state.currentRoom.code = roomCode;
-    state.currentRoom.id = roomCode;
-    
-    // إضافة لاعب جديد للغرفة (محاكاة)
-    state.currentRoom.players.push({
-        id: state.currentPlayer.id,
-        name: state.currentPlayer.name,
-        isGameMaster: false,
-        role: null,
-        isAlive: true
+    // إرسال طلب الانضمام للخادم
+    socket.emit('join-room', {
+        roomCode: roomCode,
+        playerName: state.currentPlayer.name,
+        isGameMaster: false
     });
-    
-    state.isInRoom = true;
-    
-    saveToLocalStorage();
-    updateRoomDisplay();
-    showRoomInfo();
-    initializeRoleSystem();
-    
-    showSuccess(`تم الانضمام للغرفة ${roomCode} بنجاح!`);
-    console.log('✅ تم الانضمام للغرفة:', state.currentRoom);
 }
 
 // -------------------------
@@ -504,8 +623,36 @@ function initializeRoleSystem() {
     
     // إظهار واجهة إدارة الأدوار للمشرف فقط
     if (state.currentPlayer.isGameMaster) {
-        elements.roleManagement.style.display = 'block';
+        createRoleManagementSection();
     }
+}
+
+/**
+ * 🎯 إنشاء قسم إدارة الأدوار
+ */
+function createRoleManagementSection() {
+    if (document.getElementById('roleManagementSection')) return;
+    
+    const roleManagementHTML = `
+        <div id="roleManagementSection" class="role-management">
+            <h4>🎭 إدارة الأدوار</h4>
+            <div class="role-buttons">
+                <button id="autoAssignRoles" class="btn btn-primary">🔄 توزيع تلقائي</button>
+                <button id="manualAssignRoles" class="btn btn-secondary">🎯 توزيع يدوي</button>
+                <button id="assignChef" class="btn btn-info">👑 تعيين قائد</button>
+                <button id="startGameBtn" class="btn btn-success">🎮 بدء اللعبة</button>
+            </div>
+            <div id="roleAssignmentResults" class="role-results"></div>
+        </div>
+    `;
+    
+    elements.roomInfo.insertAdjacentHTML('beforeend', roleManagementHTML);
+    
+    // إضافة مستمعي الأحداث للأزرار الجديدة
+    document.getElementById('autoAssignRoles').addEventListener('click', handleAutoAssignRoles);
+    document.getElementById('manualAssignRoles').addEventListener('click', handleManualAssignRoles);
+    document.getElementById('assignChef').addEventListener('click', handleAssignChef);
+    document.getElementById('startGameBtn').addEventListener('click', handleStartGame);
 }
 
 /**
@@ -515,13 +662,16 @@ function handleAutoAssignRoles() {
     console.log('🔄 بدء التوزيع التلقائي للأدوار...');
     
     if (!validateRoleAssignment()) return;
+    if (!checkConnection()) return;
     
     const players = state.currentRoom.players.filter(p => p.isAlive);
     const rolesToAssign = calculateOptimalRoles(players.length);
     
-    assignRolesToPlayers(players, rolesToAssign);
-    showRoleAssignmentResults('تم التوزيع التلقائي للأدوار بنجاح!');
-    sendNotificationToAll('تم توزيع الأدوار تلقائياً');
+    // إرسال طلب توزيع الأدوار للخادم
+    socket.emit('assign-roles', {
+        roomCode: state.currentRoom.code,
+        roles: rolesToAssign
+    });
 }
 
 /**
@@ -531,6 +681,7 @@ function handleManualAssignRoles() {
     console.log('🎯 فتح واجهة التوزيع اليدوي...');
     
     if (!validateRoleAssignment()) return;
+    if (!checkConnection()) return;
     
     openManualRoleAssignmentPopup();
 }
@@ -540,14 +691,27 @@ function handleManualAssignRoles() {
  */
 function handleAssignChef() {
     console.log('👑 فتح نافذة تعيين القائد...');
+    
+    if (!checkConnection()) return;
     openChefAssignmentPopup();
+}
+
+/**
+ * 🎯 معالجة بدء اللعبة
+ */
+function handleStartGame() {
+    console.log('🎮 بدء اللعبة...');
+    
+    if (!checkConnection()) return;
+    
+    socket.emit('start-game', state.currentRoom.code);
 }
 
 /**
  * 🎯 التحقق من إمكانية توزيع الأدوار
  */
 function validateRoleAssignment() {
-    if (state.currentRoom.players.length < 5) {
+    if (!state.currentRoom.players || state.currentRoom.players.length < 5) {
         showError('يجب أن يكون هناك على الأقل 5 لاعبين لتوزيع الأدوار');
         return false;
     }
@@ -593,35 +757,6 @@ function calculateOptimalRoles(playerCount) {
     
     console.log('📊 الأدوار المحسوبة:', roles.map(r => r.name));
     return roles;
-}
-
-/**
- * 🎯 توزيع الأدوار على اللاعبين
- */
-function assignRolesToPlayers(players, roles) {
-    console.log('🎭 توزيع الأدوار على اللاعبين...');
-    
-    // خلط اللاعبين والأدوار عشوائياً
-    const shuffledPlayers = [...players].sort(() => Math.random() - 0.5);
-    const shuffledRoles = [...roles].sort(() => Math.random() - 0.5);
-    
-    // توزيع الأدوار
-    shuffledPlayers.forEach((player, index) => {
-        if (index < shuffledRoles.length) {
-            player.role = shuffledRoles[index];
-            
-            // تعيين الذئب ألفا تلقائياً
-            if (shuffledRoles[index].id === 'werewolf_alpha') {
-                state.roleSystem.werewolfAlpha = player.id;
-            }
-        }
-    });
-    
-    state.roleSystem.rolesAssigned = true;
-    updateRoomDisplay();
-    saveToLocalStorage();
-    
-    console.log('✅ تم توزيع الأدوار:', shuffledPlayers.map(p => `${p.name}: ${p.role?.name}`));
 }
 
 /**
@@ -683,20 +818,22 @@ function closeManualRolePopup() {
 function handleConfirmManualRoles() {
     console.log('✅ تأكيد التوزيع اليدوي...');
     
+    if (!checkConnection()) return;
+    
     const roleSelects = elements.manualRolePlayersList.querySelectorAll('.role-select');
-    const assignedRoles = {};
+    const roles = [];
     let hasEmptySelection = false;
     
     // جمع الأدوار المختارة
     roleSelects.forEach(select => {
-        const playerId = select.getAttribute('data-player-id');
         const roleId = select.value;
         
         if (!roleId) {
             hasEmptySelection = true;
         }
         
-        assignedRoles[playerId] = roleId;
+        const role = ROLES[Object.keys(ROLES).find(key => ROLES[key].id === roleId)];
+        roles.push(role);
     });
     
     if (hasEmptySelection) {
@@ -705,25 +842,13 @@ function handleConfirmManualRoles() {
         return;
     }
     
-    // تطبيق الأدوار المختارة
-    Object.entries(assignedRoles).forEach(([playerId, roleId]) => {
-        const player = state.currentRoom.players.find(p => p.id === playerId);
-        if (player) {
-            player.role = ROLES[Object.keys(ROLES).find(key => ROLES[key].id === roleId)];
-            
-            // تحديث الذئب ألفا
-            if (roleId === 'werewolf_alpha') {
-                state.roleSystem.werewolfAlpha = playerId;
-            }
-        }
+    // إرسال الأدوار للخادم
+    socket.emit('assign-roles', {
+        roomCode: state.currentRoom.code,
+        roles: roles
     });
     
-    state.roleSystem.rolesAssigned = true;
     closeManualRolePopup();
-    updateRoomDisplay();
-    saveToLocalStorage();
-    showRoleAssignmentResults('تم التوزيع اليدوي للأدوار بنجاح!');
-    sendNotificationToAll('تم توزيع الأدوار يدوياً');
 }
 
 /**
@@ -775,6 +900,8 @@ function closeChefAssignmentPopup() {
 function handleConfirmChefAssignment() {
     console.log('✅ تأكيد تعيين القائد...');
     
+    if (!checkConnection()) return;
+    
     const selectedPlayerId = elements.chefPlayerSelect.value;
     
     if (!selectedPlayerId) {
@@ -783,53 +910,13 @@ function handleConfirmChefAssignment() {
         return;
     }
     
-    const selectedPlayer = state.currentRoom.players.find(p => p.id === selectedPlayerId);
-    
-    if (!selectedPlayer) {
-        elements.chefAssignmentError.textContent = 'اللاعب المحدد غير موجود';
-        elements.chefAssignmentError.style.display = 'block';
-        return;
-    }
-    
-    // إزالة دور القائد السابق إذا موجود
-    if (state.roleSystem.currentChef) {
-        const previousChef = state.currentRoom.players.find(p => p.id === state.roleSystem.currentChef);
-        if (previousChef && previousChef.role?.id === 'chef') {
-            // استعادة الدور الأصلي أو تعيينه كقروي
-            previousChef.role = ROLES.VILLAGER;
-        }
-    }
-    
-    // تعيين القائد الجديد
-    selectedPlayer.role = ROLES.CHEF;
-    state.roleSystem.currentChef = selectedPlayerId;
+    // إرسال طلب تعيين القائد للخادم
+    socket.emit('assign-chef', {
+        roomCode: state.currentRoom.code,
+        playerId: selectedPlayerId
+    });
     
     closeChefAssignmentPopup();
-    updateRoomDisplay();
-    saveToLocalStorage();
-    showRoleAssignmentResults(`تم تعيين ${selectedPlayer.name} كقائد للقرية!`);
-    sendNotificationToAll(`تم تعيين ${selectedPlayer.name} كقائد جديد للقرية`);
-}
-
-/**
- * 🎯 عرض نتائج توزيع الأدوار
- */
-function showRoleAssignmentResults(message) {
-    elements.roleAssignmentResults.textContent = message;
-    elements.roleAssignmentResults.className = 'role-results show';
-    
-    setTimeout(() => {
-        elements.roleAssignmentResults.className = 'role-results';
-    }, 5000);
-}
-
-/**
- * 🎯 إرسال إشعار لجميع اللاعبين
- */
-function sendNotificationToAll(message) {
-    console.log(`📢 إشعار للجميع: ${message}`);
-    // في التطبيق الحقيقي، هنا سيتم إرسال الإشعارات عبر WebSockets
-    showSuccess(message);
 }
 
 // -------------------------
@@ -889,7 +976,7 @@ function updateRoomDisplay() {
     elements.roomCodeDisplay.textContent = state.currentRoom.code;
     
     // تحديث دور اللاعب الحالي
-    const currentPlayer = state.currentRoom.players.find(p => p.id === state.currentPlayer.id);
+    const currentPlayer = state.currentRoom.players.find(p => p.socketId === socket.id);
     if (currentPlayer && currentPlayer.role) {
         const role = currentPlayer.role;
         elements.playerRoleDisplay.innerHTML = `
@@ -912,12 +999,17 @@ function updatePlayersList() {
     
     elements.playersList.innerHTML = '';
     
+    if (!state.currentRoom.players || state.currentRoom.players.length === 0) {
+        elements.playersList.innerHTML = '<li>لا يوجد لاعبين في الغرفة</li>';
+        return;
+    }
+    
     state.currentRoom.players.forEach(player => {
         const li = document.createElement('li');
         
         let playerText = player.name;
         if (player.isGameMaster) playerText += ' 👑 (مشرف)';
-        if (player.id === state.currentPlayer.id) playerText += ' (أنت)';
+        if (player.socketId === socket.id) playerText += ' (أنت)';
         
         // إضافة الدور إذا كان معيناً
         if (player.role) {
@@ -929,6 +1021,28 @@ function updatePlayersList() {
         li.innerHTML = playerText;
         elements.playersList.appendChild(li);
     });
+}
+
+/**
+ * ✅ تحديث حالة الاتصال
+ */
+function updateConnectionStatus() {
+    let statusElement = document.getElementById('connectionStatus');
+    
+    if (!statusElement) {
+        statusElement = document.createElement('div');
+        statusElement.id = 'connectionStatus';
+        statusElement.className = 'connection-status';
+        document.body.appendChild(statusElement);
+    }
+    
+    if (isConnected) {
+        statusElement.textContent = '🟢 متصل';
+        statusElement.className = 'connection-status connected';
+    } else {
+        statusElement.textContent = '🔴 غير متصل';
+        statusElement.className = 'connection-status disconnected';
+    }
 }
 
 // -------------------------
@@ -959,6 +1073,17 @@ function validateInputs() {
     }
     
     hideError();
+    return true;
+}
+
+/**
+ * ✅ التحقق من الاتصال بالخادم
+ */
+function checkConnection() {
+    if (!isConnected) {
+        showError('غير متصل بالخادم. تأكد من تشغيل الخادم أولاً.');
+        return false;
+    }
     return true;
 }
 
@@ -1013,6 +1138,22 @@ function showSuccess(message) {
 }
 
 /**
+ * ✅ عرض رسالة معلومات
+ */
+function showInfo(message) {
+    console.log('💡 معلومات:', message);
+    
+    const infoElement = document.createElement('div');
+    infoElement.className = 'info-message';
+    infoElement.textContent = message;
+    infoElement.style.display = 'block';
+    
+    document.querySelector('.buttons-section').appendChild(infoElement);
+    
+    setTimeout(() => infoElement.remove(), 3000);
+}
+
+/**
  * ✅ عرض خطأ في نافذة إنشاء الغرفة
  */
 function showCreateRoomError(message) {
@@ -1036,22 +1177,15 @@ function showJoinRoomError(message) {
  * ✅ توليد معرف فريد للاعب
  */
 function generatePlayerId() {
-    return 'player_' + Math.random().toString(36).substr(2, 9);
-}
-
-/**
- * ✅ توليد معرف فريد للغرفة
- */
-function generateRoomId() {
-    return 'room_' + Math.random().toString(36).substr(2, 9);
+    return 'player_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
 }
 
 /**
  * ✅ إعادة تعيين الحالة
  */
 function resetState() {
-    state.currentPlayer = { name: '', id: '', isGameMaster: false, role: '' };
-    state.currentRoom = { id: '', name: '', code: '', players: [], maxPlayers: 10 };
+    state.currentPlayer = { name: '', id: '', isGameMaster: false, role: null, isAlive: true };
+    state.currentRoom = { id: '', name: '', code: '', players: [], maxPlayers: 10, gameState: 'waiting' };
     state.isInRoom = false;
     state.roleSystem = { rolesAssigned: false, currentChef: null, werewolfAlpha: null, cursedPlayers: [] };
     console.log('🔄 تم إعادة تعيين الحالة');
@@ -1132,4 +1266,4 @@ window.addEventListener('beforeunload', function(event) {
     }
 });
 
-console.log('🎯 تم تحميل script.js بنجاح - نظام الأدوار مكتمل!');
+console.log('🎯 تم تحميل script.js بنجاح - نظام الاتصال الحقيقي جاهز!');
