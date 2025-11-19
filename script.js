@@ -163,7 +163,6 @@ function initializeElements() {
     // الأزرار الرئيسية
     elements.createRoomBtn = document.getElementById('createRoomBtn');
     elements.joinRoomBtn = document.getElementById('joinRoomBtn');
-    elements.storyBtn = document.getElementById('storyBtn');
     
     // عناصر الغرفة
     elements.roomInfo = document.getElementById('roomInfo');
@@ -172,11 +171,6 @@ function initializeElements() {
     elements.playerRoleDisplay = document.getElementById('playerRoleDisplay');
     elements.playersList = document.getElementById('playersList');
     elements.roleManagement = document.getElementById('roleManagement');
-    
-    // النوافذ المنبثقة
-    elements.storyPopup = document.getElementById('storyPopup');
-    elements.closeStoryBtn = document.getElementById('closeStoryBtn');
-    elements.understandBtn = document.getElementById('understandBtn');
     
     // نوافذ الغرف
     elements.createRoomPopup = document.getElementById('createRoomPopup');
@@ -203,6 +197,13 @@ function initializeElements() {
     elements.manualRoleError = document.getElementById('manualRoleError');
     elements.chefAssignmentError = document.getElementById('chefAssignmentError');
     
+    // أزرار إدارة الأدوار
+    elements.autoAssignRoles = document.getElementById('autoAssignRoles');
+    elements.manualAssignRoles = document.getElementById('manualAssignRoles');
+    elements.assignChef = document.getElementById('assignChef');
+    elements.startGameBtn = document.getElementById('startGameBtn');
+    elements.roleAssignmentResults = document.getElementById('roleAssignmentResults');
+    
     // رسائل النظام
     elements.errorMessage = document.getElementById('error-message');
     
@@ -218,11 +219,6 @@ function attachEventListeners() {
     // أزرار الحركة الرئيسية
     elements.createRoomBtn.addEventListener('click', handleCreateRoom);
     elements.joinRoomBtn.addEventListener('click', handleJoinRoom);
-    elements.storyBtn.addEventListener('click', showGameStory);
-    
-    // النوافذ المنبثقة
-    elements.closeStoryBtn.addEventListener('click', closePopup);
-    elements.understandBtn.addEventListener('click', closePopup);
     
     // نوافذ الغرف
     elements.closeCreateRoomBtn.addEventListener('click', closeCreateRoomPopup);
@@ -236,11 +232,13 @@ function attachEventListeners() {
     elements.confirmManualRoles.addEventListener('click', handleConfirmManualRoles);
     elements.confirmChefAssignment.addEventListener('click', handleConfirmChefAssignment);
     
-    // إغلاق النوافذ بالضغط خارجها
-    elements.storyPopup.addEventListener('click', function(event) {
-        if (event.target === elements.storyPopup) closePopup();
-    });
+    // أزرار إدارة الأدوار
+    elements.autoAssignRoles.addEventListener('click', handleAutoAssignRoles);
+    elements.manualAssignRoles.addEventListener('click', handleManualAssignRoles);
+    elements.assignChef.addEventListener('click', handleAssignChef);
+    elements.startGameBtn.addEventListener('click', handleStartGame);
     
+    // إغلاق النوافذ بالضغط خارجها
     elements.createRoomPopup.addEventListener('click', function(event) {
         if (event.target === elements.createRoomPopup) closeCreateRoomPopup();
     });
@@ -260,7 +258,6 @@ function attachEventListeners() {
     // إغلاق النوافذ بالزر Escape
     document.addEventListener('keydown', function(event) {
         if (event.key === 'Escape') {
-            closePopup();
             closeCreateRoomPopup();
             closeJoinRoomPopup();
             closeManualRolePopup();
@@ -299,7 +296,7 @@ function initializeSocketListeners() {
     
     // حالة الاتصال
     socket.on('connect', () => {
-        console.log('✅ متصل بالخادم بنجاح');
+        console.log('✅ متصل بالخادم:', socket.id);
         isConnected = true;
         updateConnectionStatus();
         showSuccess('تم الاتصال بالخادم بنجاح');
@@ -623,36 +620,8 @@ function initializeRoleSystem() {
     
     // إظهار واجهة إدارة الأدوار للمشرف فقط
     if (state.currentPlayer.isGameMaster) {
-        createRoleManagementSection();
+        elements.roleManagement.style.display = 'block';
     }
-}
-
-/**
- * 🎯 إنشاء قسم إدارة الأدوار
- */
-function createRoleManagementSection() {
-    if (document.getElementById('roleManagementSection')) return;
-    
-    const roleManagementHTML = `
-        <div id="roleManagementSection" class="role-management">
-            <h4>🎭 إدارة الأدوار</h4>
-            <div class="role-buttons">
-                <button id="autoAssignRoles" class="btn btn-primary">🔄 توزيع تلقائي</button>
-                <button id="manualAssignRoles" class="btn btn-secondary">🎯 توزيع يدوي</button>
-                <button id="assignChef" class="btn btn-info">👑 تعيين قائد</button>
-                <button id="startGameBtn" class="btn btn-success">🎮 بدء اللعبة</button>
-            </div>
-            <div id="roleAssignmentResults" class="role-results"></div>
-        </div>
-    `;
-    
-    elements.roomInfo.insertAdjacentHTML('beforeend', roleManagementHTML);
-    
-    // إضافة مستمعي الأحداث للأزرار الجديدة
-    document.getElementById('autoAssignRoles').addEventListener('click', handleAutoAssignRoles);
-    document.getElementById('manualAssignRoles').addEventListener('click', handleManualAssignRoles);
-    document.getElementById('assignChef').addEventListener('click', handleAssignChef);
-    document.getElementById('startGameBtn').addEventListener('click', handleStartGame);
 }
 
 /**
@@ -917,40 +886,6 @@ function handleConfirmChefAssignment() {
     });
     
     closeChefAssignmentPopup();
-}
-
-// -------------------------
-// 🎯 وظائف النافذة المنبثقة
-// -------------------------
-
-/**
- * ✅ عرض نافذة قصة اللعبة
- */
-function showGameStory() {
-    console.log('📖 عرض قصة اللعبة...');
-    
-    try {
-        elements.storyPopup.style.display = 'flex';
-        document.body.style.overflow = 'hidden';
-        
-    } catch (error) {
-        console.error('❌ خطأ في عرض القصة:', error);
-    }
-}
-
-/**
- * ✅ إغلاق النافذة المنبثقة
- */
-function closePopup() {
-    console.log('❌ إغلاق النافذة المنبثقة...');
-    
-    try {
-        elements.storyPopup.style.display = 'none';
-        document.body.style.overflow = 'auto';
-        
-    } catch (error) {
-        console.error('❌ خطأ في إغلاق النافذة:', error);
-    }
 }
 
 // -------------------------
