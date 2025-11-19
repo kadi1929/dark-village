@@ -4,17 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>القرية المظلمة - لعبة الأدوار الاجتماعية</title>
-    
-    <!-- أيقونة الموقع -->
-    <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
-    <link rel="icon" type="image/png" href="assets/favicon.png">
-    <link rel="apple-touch-icon" href="assets/favicon.png">
-    
-    <!-- للهواتف -->
-    <meta name="theme-color" content="#1a1a2e">
-    
     <link rel="stylesheet" href="style.css">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
     <!-- الخلفية العامة -->
@@ -54,9 +45,6 @@
                 <button id="joinRoomBtn" class="btn btn-secondary">
                     🔗 انضم إلى غرفة موجودة
                 </button>
-                <button id="storyBtn" class="btn btn-info">
-                    📖 قصة اللعبة
-                </button>
             </section>
 
             <!-- قسم معلومات الغرفة (يظهر بعد الإنشاء/الانضمام) -->
@@ -79,6 +67,7 @@
                         <button id="autoAssignRoles" class="btn btn-primary">🔄 توزيع تلقائي</button>
                         <button id="manualAssignRoles" class="btn btn-secondary">🎯 توزيع يدوي</button>
                         <button id="assignChef" class="btn btn-info">👑 تعيين قائد</button>
+                        <button id="startGameBtn" class="btn btn-success">🎮 بدء اللعبة</button>
                     </div>
                     <div id="roleAssignmentResults" class="role-results"></div>
                 </div>
@@ -89,55 +78,6 @@
         <footer>
             <p>    2025|benalirwad@gmail.com    </p>
         </footer>
-    </div>
-
-    <!-- النافذة المنبثقة لقصة اللعبة -->
-    <div id="storyPopup" class="popup-overlay" style="display: none;">
-        <div class="popup-content">
-            <button id="closeStoryBtn" class="close-btn">✕</button>
-            <h2>📖 قصة اللعبة</h2>
-            <div class="story-content">
-                <h3>🏘️ القرية المظلمة</h3>
-                <p>قرية مسالمة يعيش فيها قرويون أبرياء، لكن بينهم ذئاب متخفية تخطط للقضاء على الجميع!</p>
-                
-                <div class="teams-section">
-                    <div class="team">
-                        <h4>🏡 فريق القرية</h4>
-                        <p>اكتشفوا الذئاب وقضوا عليهم قبل أن يفترسوكم!</p>
-                    </div>
-                    <div class="team">
-                        <h4>🐺 فريق الذئاب</h4>
-                        <p>اقضوا على القرويين حتى تصبحوا الأغلبية!</p>
-                    </div>
-                </div>
-
-                <div class="roles-section">
-                    <h4>🎭 جميع الأدوار:</h4>
-                    <ul>
-                        <li><span style="color: #000000">🖤 الذئب ألفا:</span> قائد الذئاب - يختار المستذئب</li>
-                        <li><span style="color: #000000">🖤 الذئب العادي:</span> ينفذ هجمات الليل مع الفريق</li>
-                        <li><span style="color: #FFFFFF">🤍 العرافة:</span> تكشف دور لاعب كل ليلة</li>
-                        <li><span style="color: #8A2BE2">💜 الساحرة:</span> تمتلك قدرات سحرية خاصة</li>
-                        <li><span style="color: #1E90FF">💙 الضامن:</span> يحمي لاعباً من الهجوم الليلي</li>
-                        <li><span style="color: #32CD32">💚 الصياد:</span> يقتل عند موته</li>
-                        <li><span style="color: #FFD700">👑 شاف القرية (Chef):</span> القائد - يتميز بالتاج الأصفر</li>
-                        <li><span style="color: #808080">🐺 المستذئب:</span> يتحول لاحقاً باختيار الذئب ألفا</li>
-                        <li><span style="color: #FFFFFF">👨‍🌾 القروي:</span> لا قدرات خاصة - يعتمد على الذكاء</li>
-                    </ul>
-                </div>
-
-                <div class="how-to-play">
-                    <h4>🎮 طريقة اللعب:</h4>
-                    <ol>
-                        <li>الليل: تنفيذ الإجراءات السرية</li>
-                        <li>النهار: المناقشة والاستنتاج</li>
-                        <li>التصويت: إعدام مشتبه به</li>
-                        <li>التكرار حتى فوز أحد الفريقين</li>
-                    </ol>
-                </div>
-            </div>
-            <button id="understandBtn" class="btn btn-primary">فهمت، شكراً!</button>
-        </div>
     </div>
 
     <!-- نافذة إنشاء الغرفة -->
@@ -202,3 +142,4 @@
     <script src="script.js"></script>
 </body>
 </html>
+
